@@ -1,0 +1,14 @@
+Goals: fully run this OS on my hardware
+
+Minimum requirements:
+- 64-bit
+- working file system
+- basic input/output (keyboard, display)
+- memory management
+- process management
+- basic drivers (e.g., for storage, network)
+- support for multitasking
+
+
+
+
