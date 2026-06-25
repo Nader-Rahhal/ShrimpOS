@@ -1,7 +1,16 @@
+UNAME := $(shell uname)
+
 CC_EFI   = x86_64-w64-mingw32-g++
-CC_KERN  = x86_64-elf-g++
-LD_KERN  = x86_64-elf-ld
-OC_KERN  = x86_64-elf-objcopy
+
+ifeq ($(UNAME), Darwin)
+	CC_KERN  = x86_64-elf-g++
+	LD_KERN  = x86_64-elf-ld
+	OC_KERN  = x86_64-elf-objcopy
+else
+	CC_KERN = g++
+	LD_KERN = ld
+	OC_KERN = objcopy
+endif
 
 EFI_CFLAGS = -Ignu-efi/inc -Iinclude -Ignu-efi/inc/x86_64 -Ignu-efi/inc/protocol \
              -ffreestanding -fno-stack-protector -mno-red-zone -mno-avx \
@@ -41,9 +50,9 @@ esp/kernel.bin: kernel.bin
 	cp $< $@
 
 run:
-	qemu-system-x86_64 -m 4096M -bios RELEASEX64_OVMF.fd \
+	qemu-system-x86_64 -m 17408 -bios RELEASEX64_OVMF.fd \
 	    -drive format=raw,file=fat:rw:esp \
-	    -serial stdio
+	    -serial stdio -display gtk
 
 clean:
 	rm -f *.o *.elf *.bin *.EFI

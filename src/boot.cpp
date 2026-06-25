@@ -2,11 +2,12 @@
 #include <efilib.h>
 
 #include "framebuffer.h"
+#include "memmap.h"
 
 #define KERNEL_LOAD_ADDR 0x100000ULL
 #define KERNEL_RESERVE_PAGES 64
 
-typedef void __attribute__((sysv_abi)) (*KernelEntry)(FrameBuffer *fb);
+typedef void __attribute__((sysv_abi)) (*KernelEntry)(FrameBuffer *fb, MemMap *mm);
 
 static EFI_STATUS load_kernel(EFI_HANDLE ImageHandle, EFI_PHYSICAL_ADDRESS *LoadAddr) {
     EFI_STATUS Status;
@@ -140,21 +141,45 @@ extern "C" EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemT
         return Status;
     }
 
-    UINTN numEntries = MemoryMapSize / DescriptorSize;
-    UINT64 totalPages = 0;
+    /*
 
+    static const CHAR8* memTypeNames[] = {
+        (CHAR8*)"Reserved    ",
+        (CHAR8*)"LoaderCode  ",
+        (CHAR8*)"LoaderData  ",
+        (CHAR8*)"BootSvcCode ",
+        (CHAR8*)"BootSvcData ",
+        (CHAR8*)"RuntimeCode ",
+        (CHAR8*)"RuntimeData ",
+        (CHAR8*)"Conventional",
+        (CHAR8*)"Unusable    ",
+        (CHAR8*)"ACPIReclaim ",
+        (CHAR8*)"ACPI NVS    ",
+        (CHAR8*)"MMIO        ",
+        (CHAR8*)"MMIOPortSpc ",
+        (CHAR8*)"PalCode     ",
+        (CHAR8*)"Persistent  ",
+        (CHAR8*)"Unaccepted  ",
+    };
+
+    UINTN numEntries = MemoryMapSize / DescriptorSize;
+    UINT64 totalConventionalMB = 0;
+    Print((CHAR16*)L"Type          PhysStart            Size\r\n");
+    Print((CHAR16*)L"------------------------------------------------\r\n");
     for (UINTN i = 0; i < numEntries; i++) {
         EFI_MEMORY_DESCRIPTOR *desc = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemoryMap + i * DescriptorSize);
-        if (desc->Type == EfiMemoryMappedIO || desc->Type == EfiMemoryMappedIOPortSpace || desc->Type == EfiUnusableMemory || desc->Type == EfiPalCode || desc->Type == EfiReservedMemoryType || desc->Type == EfiUnacceptedMemoryType) {
-            continue;
-        }
-        totalPages += desc->NumberOfPages;
+        const CHAR8 *name = (desc->Type < 16) ? memTypeNames[desc->Type] : (CHAR8*)"Unknown     ";
+        Print((CHAR16*)L"%a  0x%016llx  %llu KB\r\n",
+              name, desc->PhysicalStart, (desc->NumberOfPages * 4096) / 1024);
+        if (desc->Type == EfiConventionalMemory)
+            totalConventionalMB += (desc->NumberOfPages * 4096) / (1024 * 1024);
     }
-
-    Print((CHAR16*)L"Total pages: %llu pages (%llu MB)\r\n", totalPages, (totalPages * 4096) / (1024 * 1024));
+    Print((CHAR16*)L"------------------------------------------------\r\n");
+    Print((CHAR16*)L"Total conventional: %llu MB\r\n", totalConventionalMB);
 
     Status = ST->BootServices->GetMemoryMap(&MemoryMapSize, MemoryMap, &MapKey, &DescriptorSize, &DescriptorVersion);
-
+    */
+    
     Status = ST->BootServices->ExitBootServices(ImageHandle, MapKey);
     if (EFI_ERROR(Status)) {
         Status = ST->BootServices->GetMemoryMap(
@@ -166,8 +191,10 @@ extern "C" EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemT
             return Status;
     }
 
+    MemMap mm(MemoryMap, MemoryMapSize, DescriptorSize);
+
     KernelEntry kernel = (KernelEntry)(UINTN)KernelAddr;
-    kernel(&fb);
+    kernel(&fb, &mm);
 
     return EFI_SUCCESS;
 }
