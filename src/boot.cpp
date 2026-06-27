@@ -2,12 +2,12 @@
 #include <efilib.h>
 
 #include "framebuffer.h"
-#include "memmap.h"
+#include "mmap.h"
 
 #define KERNEL_LOAD_ADDR 0x100000ULL
-#define KERNEL_RESERVE_PAGES 64
+#define KERNEL_RESERVE_PAGES 256
 
-typedef void __attribute__((sysv_abi)) (*KernelEntry)(FrameBuffer *fb, MemMap *mm);
+typedef void __attribute__((sysv_abi)) (*KernelEntry)(FrameBuffer *fb, MMap *mm);
 
 static EFI_STATUS load_kernel(EFI_HANDLE ImageHandle, EFI_PHYSICAL_ADDRESS *LoadAddr) {
     EFI_STATUS Status;
@@ -141,6 +141,8 @@ extern "C" EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemT
         return Status;
     }
 
+    MMap mm(MemoryMap, MemoryMapSize, DescriptorSize);
+
     /*
 
     static const CHAR8* memTypeNames[] = {
@@ -179,7 +181,7 @@ extern "C" EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemT
 
     Status = ST->BootServices->GetMemoryMap(&MemoryMapSize, MemoryMap, &MapKey, &DescriptorSize, &DescriptorVersion);
     */
-    
+
     Status = ST->BootServices->ExitBootServices(ImageHandle, MapKey);
     if (EFI_ERROR(Status)) {
         Status = ST->BootServices->GetMemoryMap(
@@ -190,8 +192,6 @@ extern "C" EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemT
         if (EFI_ERROR(Status))
             return Status;
     }
-
-    MemMap mm(MemoryMap, MemoryMapSize, DescriptorSize);
 
     KernelEntry kernel = (KernelEntry)(UINTN)KernelAddr;
     kernel(&fb, &mm);

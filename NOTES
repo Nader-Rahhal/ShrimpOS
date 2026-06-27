@@ -10,5 +10,7 @@ Minimum requirements:
 - support for multitasking
 
 
+GDT:
+- UEFI gives us a GDT but we should set up our own anyway
 
 

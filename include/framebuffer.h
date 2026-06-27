@@ -2,6 +2,19 @@
 
 #include "color.h"
 
+struct RGB {
+    uint8_t r;  // 0-255
+    uint8_t g;  // 0-255
+    uint8_t b;  // 0-255
+};  // 3 bytes
+
+struct RGBA {
+    uint8_t r;  // 0-255
+    uint8_t g;  // 0-255
+    uint8_t b;  // 0-255
+    uint8_t a;  // 0-255, 0=transparent 255=opaque
+};  // 4 bytes
+
 class FrameBuffer {
     private:
 
@@ -9,6 +22,7 @@ class FrameBuffer {
         switch (color){
             case Color::BLACK: return 0x00000000;
             case Color::WHITE: return 0xFFFFFFFF;
+            case Color::RED: return 0x00FF0000;
             default: return 0x00000000;
         }
     }
@@ -34,7 +48,6 @@ class FrameBuffer {
     uint32_t get_height(){
         return height;
     }
-
 
 
     void draw_string(const char* str, uint32_t start_x, uint32_t start_y, Color color) {
@@ -63,6 +76,15 @@ class FrameBuffer {
         }
     }
 
+    void draw_image(RGB* image, uint32_t x, uint32_t y, uint32_t w, uint32_t h){
+        for (uint32_t row = 0; row < h; row++) {
+            for (uint32_t col = 0; col < w; col++) {
+                const RGB& px = image[row * w + col];
+                set_pixel(x + col, y + row, px.r, px.g, px.b);  // was just x, y
+            }
+        }
+    }
+
     void draw_rectangle(uint32_t x, uint32_t y, uint32_t w, uint32_t h, Color color){
         for (uint32_t row = x; row < w + x; row++){
             for (uint32_t col = y; col < h + y; col++){
@@ -78,6 +100,13 @@ class FrameBuffer {
             }
         }
     }
+
+    void set_pixel(uint32_t x, uint32_t y, uint8_t r, uint8_t g, uint8_t b) {
+        uint32_t* pixel = (uint32_t*)(base + y * pitch + x * 4);
+        *pixel = ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+    }
+
+    // this is not a proper algo
 
     void draw_line(uint32_t x, uint32_t y, uint32_t w, uint32_t h, Color color){
         draw_rectangle(x, y, w, h, color);        

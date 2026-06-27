@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include "memmap.h"
+#include "mmap.h"
 
 enum class PMM_STATUS {
     ALLOC_SUCCESS,
@@ -11,14 +11,14 @@ enum class PMM_STATUS {
 
 class PMM {
 public:
-    PMM(MemMap* mmap) : mmap(mmap) {
-        total_pages = mmap->usable_memory_bytes() / 4096;
+    PMM(MMap* mmap) : mmap(mmap) {
+        total_pages = mmap->usable_memory_pages();
         uint64_t bitmap_bytes = (total_pages + 7) / 8;
 
         uint8_t* entry = (uint8_t*)mmap->get_map();
         for (uint64_t i = 0; i < mmap->num_descriptors(); i++, entry += mmap->get_desc_size()) {
             MemDescriptor* desc = (MemDescriptor*)entry;
-            if (desc->type == 7 && desc->numPages * 4096 >= bitmap_bytes) {
+            if ((MemType)desc->type == MemType::CONVENTIONAL_MEMORY && desc->numPages * 4096 >= bitmap_bytes) {
                 bitmap = (uint8_t*)desc->physAddr;
                 break;
             }
@@ -31,7 +31,7 @@ public:
         entry = (uint8_t*)mmap->get_map();
         for (uint64_t i = 0; i < mmap->num_descriptors(); i++, entry += mmap->get_desc_size()) {
             MemDescriptor* desc = (MemDescriptor*)entry;
-            if (desc->type != 7) continue;
+            if ((MemType)desc->type != MemType::CONVENTIONAL_MEMORY) continue;
             for (uint64_t p = 0; p < desc->numPages; p++, logical++)
                 clear_bit(logical);
         }
@@ -42,7 +42,7 @@ public:
         entry = (uint8_t*)mmap->get_map();
         for (uint64_t i = 0; i < mmap->num_descriptors(); i++, entry += mmap->get_desc_size()) {
             MemDescriptor* desc = (MemDescriptor*)entry;
-            if (desc->type != 7) continue;
+            if ((MemType)desc->type != MemType::CONVENTIONAL_MEMORY) continue;
             uint64_t base = (uint64_t)desc->physAddr;
             uint64_t size = desc->numPages * 4096;
             if (bitmap_addr >= base && bitmap_addr < base + size) {
@@ -60,7 +60,7 @@ public:
         uint8_t* entry = (uint8_t*)mmap->get_map();
         for (uint64_t i = 0; i < mmap->num_descriptors(); i++, entry += mmap->get_desc_size()) {
             MemDescriptor* desc = (MemDescriptor*)entry;
-            if (desc->type != 7) continue;
+            if ((MemType)desc->type != MemType::CONVENTIONAL_MEMORY) continue;
 
             for (uint64_t p = 0; p < desc->numPages; p++, logical++) {
                 if (p + count > desc->numPages) break;
@@ -82,18 +82,12 @@ public:
         return PMM_STATUS::ALLOC_FAIL;
     }
 
-    PMM_STATUS free_pages(uint64_t address, uint64_t count) {
-        for (uint64_t i = 0; i < count; i++)
-            free_page(address + i * 4096);
-        return PMM_STATUS::DEALLOC_SUCCESS;
-    }
-
-    PMM_STATUS get_page(uint64_t& addr_out) {
+    PMM_STATUS alloc_page(uint64_t& addr_out) {
         uint64_t logical = 0;
         uint8_t* entry = (uint8_t*)mmap->get_map();
         for (uint64_t i = 0; i < mmap->num_descriptors(); i++, entry += mmap->get_desc_size()) {
             MemDescriptor* desc = (MemDescriptor*)entry;
-            if (desc->type != 7) continue;
+            if ((MemType)desc->type != MemType::CONVENTIONAL_MEMORY) continue;
             for (uint64_t p = 0; p < desc->numPages; p++, logical++) {
                 if (!test_bit(logical)) {
                     set_bit(logical);
@@ -106,12 +100,18 @@ public:
         return PMM_STATUS::DEALLOC_FAIL;
     }
 
-    PMM_STATUS free_page(uint64_t address) {
+    PMM_STATUS dealloc_pages(uint64_t address, uint64_t count) {
+        for (uint64_t i = 0; i < count; i++)
+            dealloc_page(address + i * 4096);
+        return PMM_STATUS::DEALLOC_SUCCESS;
+    }
+
+    PMM_STATUS dealloc_page(uint64_t address) {
         uint64_t logical = 0;
         uint8_t* entry = (uint8_t*)mmap->get_map();
         for (uint64_t i = 0; i < mmap->num_descriptors(); i++, entry += mmap->get_desc_size()) {
             MemDescriptor* desc = (MemDescriptor*)entry;
-            if (desc->type != 7) continue;
+            if ((MemType)desc->type != MemType::CONVENTIONAL_MEMORY) continue;
             uint64_t base = (uint64_t)desc->physAddr;
             uint64_t size = desc->numPages * 4096;
             if (address >= base && address < base + size) {
@@ -128,7 +128,7 @@ public:
     uint64_t get_total_pages() const { return total_pages; }
 
 private:
-    MemMap*  mmap;
+    MMap*  mmap;
     uint8_t* bitmap      = nullptr;
     uint64_t total_pages = 0;
 

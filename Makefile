@@ -52,7 +52,8 @@ esp/kernel.bin: kernel.bin
 run:
 	qemu-system-x86_64 -m 17408 -bios RELEASEX64_OVMF.fd \
 	    -drive format=raw,file=fat:rw:esp \
-	    -serial stdio -display gtk
+	    -serial stdio -display gtk \
+		-device VGA,vgamem_mb=64 \
 
 clean:
 	rm -f *.o *.elf *.bin *.EFI
