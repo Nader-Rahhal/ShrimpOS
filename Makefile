@@ -37,8 +37,14 @@ esp/EFI/BOOT:
 kernel.o: src/kernel.cpp
 	$(CC_KERN) $(KERN_CFLAGS) -c $< -o $@
 
-kernel.elf: kernel.o font_psf.o kernel.ld
-	$(LD_KERN) -T kernel.ld -o $@ kernel.o font_psf.o
+util.o: src/util.cpp
+	$(CC_KERN) $(KERN_CFLAGS) -c $< -o $@
+
+isr.o: src/isr.s
+	nasm -f elf64 $< -o $@
+
+kernel.elf: kernel.o util.o isr.o font_psf.o kernel.ld
+	$(LD_KERN) -T kernel.ld -o $@ kernel.o util.o isr.o font_psf.o
 
 font_psf.o: font.psf
 	x86_64-elf-objcopy -O elf64-x86-64 -B i386 -I binary font.psf font_psf.o
@@ -53,7 +59,7 @@ run:
 	qemu-system-x86_64 -m 17408 -bios RELEASEX64_OVMF.fd \
 	    -drive format=raw,file=fat:rw:esp \
 	    -serial stdio -display gtk \
-		-device VGA,vgamem_mb=64 \
+		-device VGA,vgamem_mb=64
 
 clean:
 	rm -f *.o *.elf *.bin *.EFI

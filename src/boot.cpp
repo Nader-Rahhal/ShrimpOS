@@ -3,11 +3,12 @@
 
 #include "framebuffer.h"
 #include "mmap.h"
+#include "acpi.h"
 
 #define KERNEL_LOAD_ADDR 0x100000ULL
 #define KERNEL_RESERVE_PAGES 256
 
-typedef void __attribute__((sysv_abi)) (*KernelEntry)(FrameBuffer *fb, MMap *mm);
+typedef void __attribute__((sysv_abi)) (*KernelEntry)(FrameBuffer *fb, MMap *mm, MADT *madt);
 
 static EFI_STATUS load_kernel(EFI_HANDLE ImageHandle, EFI_PHYSICAL_ADDRESS *LoadAddr) {
     EFI_STATUS Status;
@@ -79,6 +80,24 @@ static EFI_STATUS load_kernel(EFI_HANDLE ImageHandle, EFI_PHYSICAL_ADDRESS *Load
     return EFI_SUCCESS;
 }
 
+struct __attribute__((packed)) RSDP {
+    char     Signature[8];
+    uint8_t  Checksum;
+    char     OEMID[6];
+    uint8_t  Revision;
+    uint32_t RsdtAddress;
+    uint32_t Length;
+    uint64_t XsdtAddress;
+    uint8_t  ExtendedChecksum;
+    uint8_t  Reserved[3];
+};
+
+struct __attribute__((packed)) XSDT {
+    ACPISDTHeader sdtHeader;
+    uint64_t sdtAddresses[];
+};
+
+
 extern "C" EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
     EFI_STATUS Status;
     EFI_PHYSICAL_ADDRESS KernelAddr;
@@ -143,44 +162,30 @@ extern "C" EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemT
 
     MMap mm(MemoryMap, MemoryMapSize, DescriptorSize);
 
-    /*
+    EFI_CONFIGURATION_TABLE *ConfigTable = ST->ConfigurationTable;
+    EFI_GUID Acpi20TableGuid = ACPI_20_TABLE_GUID;
+    RSDP* Rsdp = NULL;
 
-    static const CHAR8* memTypeNames[] = {
-        (CHAR8*)"Reserved    ",
-        (CHAR8*)"LoaderCode  ",
-        (CHAR8*)"LoaderData  ",
-        (CHAR8*)"BootSvcCode ",
-        (CHAR8*)"BootSvcData ",
-        (CHAR8*)"RuntimeCode ",
-        (CHAR8*)"RuntimeData ",
-        (CHAR8*)"Conventional",
-        (CHAR8*)"Unusable    ",
-        (CHAR8*)"ACPIReclaim ",
-        (CHAR8*)"ACPI NVS    ",
-        (CHAR8*)"MMIO        ",
-        (CHAR8*)"MMIOPortSpc ",
-        (CHAR8*)"PalCode     ",
-        (CHAR8*)"Persistent  ",
-        (CHAR8*)"Unaccepted  ",
-    };
-
-    UINTN numEntries = MemoryMapSize / DescriptorSize;
-    UINT64 totalConventionalMB = 0;
-    Print((CHAR16*)L"Type          PhysStart            Size\r\n");
-    Print((CHAR16*)L"------------------------------------------------\r\n");
-    for (UINTN i = 0; i < numEntries; i++) {
-        EFI_MEMORY_DESCRIPTOR *desc = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemoryMap + i * DescriptorSize);
-        const CHAR8 *name = (desc->Type < 16) ? memTypeNames[desc->Type] : (CHAR8*)"Unknown     ";
-        Print((CHAR16*)L"%a  0x%016llx  %llu KB\r\n",
-              name, desc->PhysicalStart, (desc->NumberOfPages * 4096) / 1024);
-        if (desc->Type == EfiConventionalMemory)
-            totalConventionalMB += (desc->NumberOfPages * 4096) / (1024 * 1024);
+    for (UINTN i = 0; i < ST->NumberOfTableEntries; i++) {
+        if (CompareGuid(&ConfigTable[i].VendorGuid, &Acpi20TableGuid)) {
+            Rsdp = (RSDP*)ConfigTable[i].VendorTable;
+            break;
+        }
     }
-    Print((CHAR16*)L"------------------------------------------------\r\n");
-    Print((CHAR16*)L"Total conventional: %llu MB\r\n", totalConventionalMB);
-
-    Status = ST->BootServices->GetMemoryMap(&MemoryMapSize, MemoryMap, &MapKey, &DescriptorSize, &DescriptorVersion);
-    */
+    
+    // now we have a structure that holds all the ACPI table descriptors
+    XSDT* Xsdt = (XSDT*)(UINTN)Rsdp->XsdtAddress;
+    UINTN NumTableDescriptors = (Xsdt->sdtHeader.Length - sizeof(ACPISDTHeader)) / 8;
+    MADT *madt = NULL;
+    
+    for (UINTN i = 0; i < NumTableDescriptors; i++) {
+        ACPISDTHeader *header = (ACPISDTHeader *)(UINTN)Xsdt->sdtAddresses[i];
+        if (header->Signature[0] == 'A' && header->Signature[1] == 'P' &&
+            header->Signature[2] == 'I' && header->Signature[3] == 'C') {
+            madt = (MADT *)header;
+            break;
+        }
+    }
 
     Status = ST->BootServices->ExitBootServices(ImageHandle, MapKey);
     if (EFI_ERROR(Status)) {
@@ -194,7 +199,9 @@ extern "C" EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemT
     }
 
     KernelEntry kernel = (KernelEntry)(UINTN)KernelAddr;
-    kernel(&fb, &mm);
+    kernel(&fb, &mm, madt);
+
+    __builtin_unreachable();
 
     return EFI_SUCCESS;
 }
